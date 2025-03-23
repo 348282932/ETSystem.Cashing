@@ -39,7 +39,7 @@ namespace ETSystem.Cashing
 
         private void tbx_Activation_Click(object sender, EventArgs e)
         {
-            if (Encryption.Md5($"ET{tbx_MachineCode.Text}ET").ToLower() != tbx_ActivationCode.Text.Trim().ToLower()) 
+            if (Encryption.Md5($"SRZS{tbx_MachineCode.Text}SRZS").ToLower() != tbx_ActivationCode.Text.Trim().ToLower()) 
             {
                 MessageBox.Show("激活失败，激活码不正确！");
 

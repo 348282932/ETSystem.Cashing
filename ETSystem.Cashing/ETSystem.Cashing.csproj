@@ -7,7 +7,7 @@
     <ProjectGuid>{90B7AB57-C0F7-4C96-9952-347E7748AD96}</ProjectGuid>
     <OutputType>WinExe</OutputType>
     <RootNamespace>ETSystem.Cashing</RootNamespace>
-    <AssemblyName>ETSystem.Cashing</AssemblyName>
+    <AssemblyName>算绒助手</AssemblyName>
     <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
     <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
@@ -31,6 +31,12 @@
     <DefineConstants>TRACE</DefineConstants>
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
+  </PropertyGroup>
+  <PropertyGroup>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+  <PropertyGroup>
+    <ApplicationIcon>Image\算绒助手.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="AutoMapper, Version=10.0.0.0, Culture=neutral, PublicKeyToken=be96cd2c38ef1005, processorArchitecture=MSIL">
@@ -149,6 +155,12 @@
     <Compile Include="Model\ETFile.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="SetGrammageForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="SetGrammageForm.Designer.cs">
+      <DependentUpon>SetGrammageForm.cs</DependentUpon>
+    </Compile>
     <EmbeddedResource Include="AuthorizeForm.resx">
       <DependentUpon>AuthorizeForm.cs</DependentUpon>
     </EmbeddedResource>
@@ -160,6 +172,10 @@
       <SubType>Designer</SubType>
       <LastGenOutput>Resources.Designer.cs</LastGenOutput>
     </EmbeddedResource>
+    <EmbeddedResource Include="SetGrammageForm.resx">
+      <DependentUpon>SetGrammageForm.cs</DependentUpon>
+    </EmbeddedResource>
+    <None Include="app.manifest" />
     <None Include="packages.config" />
     <None Include="Properties\Settings.settings">
       <Generator>SettingsSingleFileGenerator</Generator>
@@ -185,6 +201,7 @@
   <ItemGroup>
     <Content Include="Image\loading.gif" />
     <Content Include="Image\微信图片_20250322225406.png" />
+    <Content Include="Image\算绒助手.ico" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>

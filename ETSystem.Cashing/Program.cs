@@ -17,7 +17,9 @@ namespace ETSystem.Cashing
         static void Main()
         {
             Application.EnableVisualStyles();
+
             Application.SetCompatibleTextRenderingDefault(false);
+
             if (CheckAuthorize())
             {
                 Application.Run(new CashingFileConvertForm());
@@ -34,8 +36,6 @@ namespace ETSystem.Cashing
         /// <returns></returns>
         private static bool CheckAuthorize()
         {
-            return true;
-
             if (!File.Exists(AuthorizeForm.cachePath)) return false;
 
             var jTokenObj = (JToken)JsonConvert.DeserializeObject(File.ReadAllText(AuthorizeForm.cachePath));
@@ -48,7 +48,7 @@ namespace ETSystem.Cashing
 
             var machineGuid = localMachine64.OpenSubKey(@"SOFTWARE\Microsoft\Cryptography").GetValue("MachineGuid")?.ToString();
 
-            if (machineCode == machineGuid && activationCode.ToLower() == Encryption.Md5($"ET{machineCode}ET").ToLower()) return true;
+            if (machineCode == machineGuid && activationCode.ToLower() == Encryption.Md5($"SRZS{machineCode}SRZS").ToLower()) return true;
 
             return false;
         }

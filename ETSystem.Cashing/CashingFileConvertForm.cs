@@ -1,5 +1,6 @@
 ﻿using ETSystem.Cashing.Model;
-using NPOI.SS.Formula.Functions;
+using Newtonsoft.Json.Linq;
+using Newtonsoft.Json;
 using NPOI.SS.UserModel;
 using NPOI.XSSF.UserModel;
 using System;
@@ -8,24 +9,25 @@ using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
 using System.Windows.Forms;
-using static System.Windows.Forms.VisualStyles.VisualStyleElement;
 
 namespace ETSystem.Cashing
 {
     public partial class CashingFileConvertForm : BaseForm
     {
-        public static List<ETFile> uploadFileList = new List<ETFile>();
+        /// <summary>
+        /// 用户缓存文件地址
+        /// </summary>
+        public static readonly string cachePath = $"{Application.StartupPath}\\UserCache.data";
 
-        public static List<ETFile> downFileList = new List<ETFile>();
+        public static string historyPath = "";
 
-        public static string id = string.Empty;
-
-        public static string fileConversionID = string.Empty;
-
+        public static ETFile uploadFile = new ETFile();
 
         public CashingFileConvertForm()
         {
             StartPosition = FormStartPosition.CenterScreen;
+
+            this.MaximizeBox = false; // 隐藏最大化按钮
 
             InitializeComponent();
         }
@@ -43,7 +45,10 @@ namespace ETSystem.Cashing
 
             // 设置打开对话框的初始目录，默认目录为exe运行文件所在的路径
 
-            ofd.InitialDirectory = Application.StartupPath;
+            if (string.IsNullOrEmpty(historyPath))
+            {
+                ofd.InitialDirectory = historyPath;
+            }
 
             // 设置打开对话框的标题
 
@@ -77,8 +82,17 @@ namespace ETSystem.Cashing
 
                 // 输出路径默认等于输入路径
 
-                tbx_OutputPath.Text = $"{Path.GetDirectoryName(ofd.FileName)}\\{Path.GetFileNameWithoutExtension(ofd.SafeFileName)}_输出{Path.GetExtension(ofd.FileName)}";
-            }
+                if (string.IsNullOrEmpty(tbx_OutputPath.Text))
+                {
+                    tbx_OutputPath.Text = $"{Path.GetDirectoryName(ofd.FileName)}";
+                }
+
+                uploadFile = ReadExcelFile();
+
+                lbl_GrammageStatus.Text = "未设置";
+
+                historyPath = $"{Path.GetDirectoryName(ofd.FileName)}";
+            } 
         }
 
         /// <summary>
@@ -102,11 +116,11 @@ namespace ETSystem.Cashing
                 return;
             }
 
+            uploadFile.ReservedBit = cbx_ReservedBit.SelectedIndex + 1;
+
             this.DoWorkAsync((o) => //耗时逻辑处理(此处不能操作UI控件，因为是在异步中)
             {
-                var file = ReadExcelFile();
-
-                return ExportExcelFile(file);
+                return ExportExcelFile(uploadFile);
 
             }, null, (success) => //显示结果（此处用于对上面结果的处理，比如显示到界面上）
             {
@@ -140,6 +154,16 @@ namespace ETSystem.Cashing
 
             if (result == DialogResult.OK)
             {
+                var authorizeCache = JsonConvert.SerializeObject(new
+                {
+                    ReservedBit = cbx_ReservedBit.SelectedIndex,
+                    Style = cbx_Style.SelectedIndex,
+                    OutputPath = tbx_OutputPath.Text,
+                    HistoryPath = historyPath
+                });
+
+                File.WriteAllText(cachePath, authorizeCache);
+
                 this.Hide();
 
                 Environment.Exit(Environment.ExitCode);
@@ -178,8 +202,26 @@ namespace ETSystem.Cashing
         /// <param name="e"></param>
         private void EasyFileConvertForm_Load(object sender, EventArgs e)
         {
-            cbx_ReservedBit.SelectedIndex = 1;
-            cbx_style.SelectedIndex = 0;
+            // 读取缓存初始化参数
+
+            if (File.Exists(cachePath))
+            {
+                var jTokenObj = (JToken)JsonConvert.DeserializeObject(File.ReadAllText(cachePath));
+
+                cbx_ReservedBit.SelectedIndex = Convert.ToInt32(jTokenObj["ReservedBit"]);
+
+                cbx_Style.SelectedIndex = Convert.ToInt32(jTokenObj["Style"]);
+
+                tbx_OutputPath.Text = jTokenObj["OutputPath"].ToString();
+
+                historyPath = jTokenObj["HistoryPath"].ToString(); 
+            }
+            else 
+            {
+                cbx_ReservedBit.SelectedIndex = 1;
+
+                cbx_Style.SelectedIndex = 0;
+            }
         }
 
         /// <summary>
@@ -192,151 +234,207 @@ namespace ETSystem.Cashing
 
             file.PiecesList = new List<Pieces>();
 
-            using (var fileStream = new FileStream(lbl_FliePath.Text, FileMode.Open, FileAccess.Read))
+            file.WeightList = new List<Weight>();
+
+            file.PiecesTypeList = new List<PiecesType>();
+
+            file.PictureInfoList = new List<PictureInfo>();
+
+            var order = 0;
+            
+            try
             {
-                IWorkbook workbook = new XSSFWorkbook(fileStream);
-
-                ISheet sheet = workbook.GetSheetAt(0); // 获取第一个工作表
-
-                var number = 0;
-
-                var sizeDic = new Dictionary<int, string>();
-
-                var isReadSize = false;
-
-                var endCellNum = 0;
-
-                var piecesName = "";
-
-                var isEndRead = false;
-
-                // 遍历行和单元格
-
-                for (int rowIndex = 1; rowIndex <= sheet.LastRowNum; rowIndex++)
+                using (var fileStream = new FileStream(lbl_FliePath.Text, FileMode.Open, FileAccess.Read))
                 {
-                    if (isEndRead) break;
+                    IWorkbook workbook = new XSSFWorkbook(fileStream);
 
-                    IRow row = sheet.GetRow(rowIndex);
+                    ISheet sheet = workbook.GetSheetAt(0); // 获取第一个工作表
 
-                    if (row != null)
+                    var number = 0;
+
+                    var sizeDic = new Dictionary<int, string>();
+
+                    var isReadSize = false;
+
+                    var endCellNum = 0;
+
+                    var piecesName = "";
+
+                    var piecesTypeName = "";
+
+                    var piecesTypeNumber = 0;
+
+                    var isEndRead = false;
+
+                    // 遍历行和单元格
+
+                    for (int rowIndex = 1; rowIndex <= sheet.LastRowNum; rowIndex++)
                     {
-                        for (int colIndex = 0; colIndex < row.LastCellNum; colIndex++)
+                        if (isEndRead) break;
+
+                        IRow row = sheet.GetRow(rowIndex);
+
+                        if (row != null)
                         {
-                            ICell cell = row.GetCell(colIndex);
-
-                            if (string.IsNullOrEmpty(cell?.ToString())) 
+                            for (int colIndex = 0; colIndex < row.LastCellNum; colIndex++)
                             {
-                                // 如果第一列没数据，则跳出这一行
+                                ICell cell = row.GetCell(colIndex);
 
-                                if (colIndex == 0) break; 
-
-                                continue;
-                            }
-
-                            var value = cell.ToString();
-
-                            if (value == "单件总表" && colIndex == 0) 
-                            {
-                                isEndRead = true;
-
-                                break;
-                            }
-
-                            // 读取到合计列时重置参数并跳过此行
-
-                            if (value == "合计" && colIndex == 0) 
-                            {
-                                number = 0;
-
-                                sizeDic.Clear();
-
-                                isReadSize = false;
-
-                                endCellNum = 0;
-
-                                piecesName = "";
-
-                                break;
-                            }
-
-                            // 当定位到结束列后按条件跳出列循环
-
-                            if (endCellNum != 0 && colIndex >= endCellNum) 
-                            {
-                                piecesName = "";
-
-                                break;
-                            } 
-
-                            // 读取款号
-
-                            if (string.IsNullOrEmpty(file.Name) && value.StartsWith("款号:"))
-                            {
-                                file.Name = value.Substring(3);
-
-                                break;
-                            }
-
-                            // 读取裁片数量
-
-                            if (number == 0)
-                            {
-                                number = Convert.ToInt32(Regex.Match(value, @".+?\*(\d+)").Result("$1"));
-
-                                break;
-                            }
-
-                            // 读取型号
-
-                            if (!isReadSize)
-                            {
-                                if (value == "充绒系数")
+                                if (string.IsNullOrEmpty(cell?.ToString()))
                                 {
-                                    isReadSize = true;
+                                    // 如果第一列没数据，则跳出这一行
 
-                                    endCellNum = colIndex;
+                                    if (colIndex == 0 && number > 0) break;
+
+                                    continue;
+                                }
+
+                                var value = cell.ToString();
+
+                                if (value == "单件总表" && colIndex == 0)
+                                {
+                                    isEndRead = true;
 
                                     break;
                                 }
 
-                                if (colIndex != 0) 
+                                // 读取到合计列时重置参数并跳过此行
+
+                                if (value == "合计" && colIndex == 0)
                                 {
-                                    sizeDic.Add(colIndex, value);
+                                    file.PiecesTypeList.Add(new PiecesType { Name = piecesTypeName, Number = piecesTypeNumber - 2, Order = ++order });
+
+                                    number = 0;
+
+                                    sizeDic.Clear();
+
+                                    isReadSize = false;
+
+                                    endCellNum = 0;
+
+                                    piecesName = "";
+
+                                    piecesTypeName = "";
+
+                                    piecesTypeNumber = 0;
+
+                                    break;
                                 }
 
-                                continue;
+                                // 当定位到结束列后按条件跳出列循环
+
+                                if (endCellNum != 0 && colIndex >= endCellNum)
+                                {
+                                    piecesName = "";
+
+                                    break;
+                                }
+
+                                // 读取款号
+
+                                if (string.IsNullOrEmpty(file.Name) && value.StartsWith("款号:"))
+                                {
+                                    file.Name = value.Substring(3);
+
+                                    break;
+                                }
+
+                                // 读取裁片数量
+
+                                if (number == 0)
+                                {
+                                    number = Convert.ToInt32(Regex.Match(value, @".+?\*(\d+)").Result("$1"));
+
+                                    piecesTypeName = Regex.Match(value, @"(.+?)\*\d+").Result("$1").ToString();
+
+                                    break;
+                                }
+
+                                // 读取型号
+
+                                if (!isReadSize)
+                                {
+                                    if (value == "充绒系数")
+                                    {
+                                        isReadSize = true;
+
+                                        endCellNum = colIndex;
+
+                                        break;
+                                    }
+
+                                    if (colIndex != 0)
+                                    {
+                                        sizeDic.Add(colIndex, value);
+                                    }
+
+                                    continue;
+                                }
+
+                                // 读取裁片名称
+
+                                if (string.IsNullOrEmpty(piecesName) && colIndex == 0)
+                                {
+                                    piecesName = value;
+
+                                    continue;
+                                }
+
+                                // 实例化裁片
+
+                                var pieces = new Pieces();
+
+                                pieces.Name = piecesName;
+
+                                pieces.Size = sizeDic[colIndex];
+
+                                pieces.Number = number;
+
+                                pieces.Area = Convert.ToDecimal(value);
+
+                                file.PiecesList.Add(pieces);
                             }
 
-                            // 读取裁片名称
-
-                            if (string.IsNullOrEmpty(piecesName) && colIndex == 0) 
-                            {
-                                piecesName = value;
-
-                                continue;
-                            }
-
-                            // 实例化裁片
-
-                            var pieces = new Pieces();
-
-                            pieces.Name = piecesName;
-
-                            pieces.Size = sizeDic[colIndex];
-
-                            pieces.Number = number;
-
-                            pieces.Area = Convert.ToDecimal(value);
-
-                            file.PiecesList.Add(pieces);
+                            if (!string.IsNullOrEmpty(piecesTypeName)) piecesTypeNumber++;
                         }
                     }
-                }
-            }
 
-            return file;
+                    file.PictureInfoList.AddRange(GetPicturesFromSheet((XSSFSheet)sheet));
+                }
+
+                var weightList = file.PiecesList.GroupBy(p => p.Size).Select(s => new Weight { ETSize = s.Key, TotalGrammage = 0 }).ToList();
+
+                file.WeightList.AddRange(weightList);
+
+                return file;
+            }
+            catch (IOException ex)
+            {
+                MessageBox.Show(ex.Message);
+
+                lbl_FliePath.Text = "";
+
+                tbx_FileName.Text = "";
+
+                return file;
+            }
+            catch (Exception) 
+            {
+                MessageBox.Show("导入的excel格式不正确！");
+
+                lbl_FliePath.Text = "";
+
+                tbx_FileName.Text = "";
+
+                return file;
+            }
         }
 
+        /// <summary>
+        /// 导出文件
+        /// </summary>
+        /// <param name="file"></param>
+        /// <returns></returns>
         private bool ExportExcelFile(ETFile file) 
         {
             if (file.PiecesList == null || !file.PiecesList.Any()) 
@@ -348,13 +446,20 @@ namespace ETSystem.Cashing
 
             var sizeArray = file.PiecesList.GroupBy(g => g.Size).Select(s => s.Key).ToArray();
 
+            var pictureArray = file.PictureInfoList.OrderBy(o => o.Row1).ToArray();
+
+            var numberArray = file.PiecesTypeList.OrderBy(g => g.Order).Select(s => s.Number).ToArray();
+
             // 获取文件路径
+
             string filePath = Path.Combine(Application.StartupPath, "Template", "模板一.xlsx");
 
             // 加载模板文件
+
             using (var templateStream = new FileStream(filePath, FileMode.Open, FileAccess.Read))
             {
                 // 创建工作簿
+
                 IWorkbook workbook = new XSSFWorkbook(templateStream);
 
                 // 计算公式结果
@@ -366,6 +471,12 @@ namespace ETSystem.Cashing
                 var noLockStyle = GetDefaultStyle(workbook);
 
                 noLockStyle.IsLocked = false;
+
+                // 设置背景颜色为绿色
+
+                noLockStyle.FillForegroundColor = IndexedColors.LightGreen.Index;
+
+                noLockStyle.FillPattern = FillPattern.SolidForeground;
 
                 for (int i = 0; i < sizeArray.Length; i++)
                 {
@@ -397,9 +508,22 @@ namespace ETSystem.Cashing
 
                     firstRow.GetCell(0).SetCellValue($"款号:{file.Name}");
 
+                    firstRow.GetCell(1).SetCellValue($"{sizeArray[i]}# 单件克重：");
+
                     firstRow.GetCell(2).CellStyle = noLockStyle;
 
+                    var totalGrammage = file.WeightList.FirstOrDefault(f => f.ETSize == sizeArray[i])?.TotalGrammage;
+
+                    if (totalGrammage != null) 
+                    {
+                        firstRow.GetCell(2).SetCellValue(totalGrammage.ToString());
+                    }
+
+                    firstRow.GetCell(5).SetCellValue($"{sizeArray[i]}# 充绒系数：");
+
                     firstRow.GetCell(6).SetCellFormula($"C2/SUM(F{piecesStart + 1}:F{piecesStart + data.Count})");
+
+                    firstRow.GetCell(9).CellStyle = noLockStyle;
 
                     foreach (var item in data)
                     {
@@ -492,14 +616,58 @@ namespace ETSystem.Cashing
                     }
 
                     evaluator.EvaluateFormulaCell(sheet.GetRow(piecesStart + data.Count + 1).GetCell(5));
+
                     evaluator.EvaluateFormulaCell(sheet.GetRow(1).GetCell(6));
 
+                    // 将图片插入到指定区域
+
+                    int endRow = 0;
+
+                    for (int j = 0; j < pictureArray.Length; j++)
+                    {
+                        int pictureIndex = workbook.AddPicture(pictureArray[j].Data, PictureType.PNG); // 添加图片到工作簿
+
+                        if (j == 0) 
+                        {
+                            endRow = 4 + numberArray[j];
+
+                            InsertPictureToSheet((XSSFWorkbook)workbook, sheet, pictureIndex, 4, 11, endRow, 11 + pictureArray[j].Col2 - pictureArray[j].Col1);
+
+                            continue;
+                        }
+
+                        InsertPictureToSheet((XSSFWorkbook)workbook, sheet, pictureIndex, endRow, 11, endRow + numberArray[j], 11 + pictureArray[j].Col2 - pictureArray[j].Col1);
+
+                        endRow = endRow + numberArray[j];
+                    }
+
                     // 保护工作表
+
                     sheet.ProtectSheet("ETSystemReadOnly");
                 }
 
                 // 保存为新文件
-                using (var outputStream = new FileStream(tbx_OutputPath.Text, FileMode.Create, FileAccess.Write))
+
+                var outputPath = $"{tbx_OutputPath.Text}\\{Path.GetFileNameWithoutExtension(tbx_FileName.Text)}_输出{Path.GetExtension(tbx_FileName.Text)}";
+
+                using (var outputStream = new FileStream(outputPath, FileMode.Create, FileAccess.Write))
+                {
+                    workbook.Write(outputStream);
+                }
+
+                // 获取文件路径
+
+                string cahcePath = Path.Combine(Application.StartupPath, "Export");
+
+                if (!Directory.Exists(cahcePath))
+                {
+                    Directory.CreateDirectory(cahcePath);
+                }
+
+                cahcePath += $"\\{Path.GetFileNameWithoutExtension(tbx_FileName.Text)}_{DateTime.Now:yyyyMMddhhmmss}{Path.GetExtension(tbx_FileName.Text)}";
+
+                // 备份输出
+                using (var outputStream = new FileStream(cahcePath, FileMode.Create, FileAccess.Write))
                 {
                     workbook.Write(outputStream);
                 }
@@ -516,6 +684,7 @@ namespace ETSystem.Cashing
         private ICellStyle GetDefaultStyle(IWorkbook workbook)
         {
             // 创建字体
+
             IFont font = workbook.CreateFont();
 
             font.FontName = "宋体"; // 设置字体为宋体
@@ -548,18 +717,18 @@ namespace ETSystem.Cashing
 
             short format = 0;
 
-            switch (cbx_ReservedBit.SelectedIndex)
+            switch (uploadFile.ReservedBit)
             {
-                case 0:
+                case 1:
                     format = dataFormat.GetFormat("0.0"); // 保留一位小数
                     break;
-                case 1:
+                case 2:
                     format = dataFormat.GetFormat("0.00"); // 保留两位小数
                     break;
-                case 2:
+                case 3:
                     format = dataFormat.GetFormat("0.000"); // 保留三位小数
                     break;
-                case 3:
+                case 4:
                     format = dataFormat.GetFormat("0.0000"); // 保留四位小数
                     break;
                 default:
@@ -568,9 +737,110 @@ namespace ETSystem.Cashing
 
             style.DataFormat = format;
 
+            style.FillForegroundColor = IndexedColors.White.Index; // 设置前景色为白色
+
+            style.FillPattern = FillPattern.SolidForeground; // 设置填充模式为纯色
+
             style.IsLocked = true;
 
             return style;
+        }
+
+        /// <summary>
+        /// 设置克重
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void btn_SetGrammage_Click(object sender, EventArgs e)
+        {
+            if (string.IsNullOrEmpty(uploadFile.Name)) 
+            {
+                MessageBox.Show("请先选取文件！");
+
+                return;
+            }
+
+            var setGrammageForm = new SetGrammageForm(uploadFile);
+
+            setGrammageForm.OKClick += (weights) =>
+            {
+                lbl_GrammageStatus.Text = "已设置";
+
+                uploadFile.WeightList = weights;
+            };
+
+            setGrammageForm.ShowDialog(this);
+        }
+
+        /// <summary>
+        /// 从工作表中提取所有图片信息
+        /// </summary>
+        private List<PictureInfo> GetPicturesFromSheet(XSSFSheet sheet)
+        {
+            List<PictureInfo> pictures = new List<PictureInfo>();
+
+            // 获取工作表中的绘图对象
+            var drawing = sheet.CreateDrawingPatriarch() as XSSFDrawing;
+            if (drawing == null)
+                return pictures;
+
+            // 遍历所有形状
+            foreach (var shape in drawing.GetShapes())
+            {
+                if (shape is XSSFPicture picture)
+                {
+                    // 获取图片数据
+                    var pictureData = picture.PictureData;
+                    byte[] data = pictureData.Data;
+                    string format = pictureData.SuggestFileExtension();
+
+                    // 获取锚点信息
+                    var anchor = picture.GetPreferredSize() as XSSFClientAnchor;
+                    int row1 = anchor.Row1;
+                    int col1 = anchor.Col1;
+                    int row2 = anchor.Row2;
+                    int col2 = anchor.Col2;
+
+                    // 添加到列表
+                    pictures.Add(new PictureInfo
+                    {
+                        Data = data,
+                        Format = format,
+                        Row1 = row1,
+                        Col1 = col1,
+                        Row2 = row2,
+                        Col2 = col2
+                    });
+                }
+            }
+
+            return pictures;
+        }
+
+
+        /// <summary>
+        /// 将图片插入到工作表的指定区域
+        /// </summary>
+        /// <param name="workbook">工作簿</param>
+        /// <param name="sheet">工作表</param>
+        /// <param name="pictureIndex">图片索引</param>
+        /// <param name="row1">起始行</param>
+        /// <param name="col1">起始列</param>
+        /// <param name="row2">结束行</param>
+        /// <param name="col2">结束列</param>
+        private void InsertPictureToSheet(XSSFWorkbook workbook, ISheet sheet, int pictureIndex, int row1, int col1, int row2, int col2)
+        {
+            // 创建绘图对象
+            XSSFDrawing drawing = (XSSFDrawing)sheet.CreateDrawingPatriarch();
+
+            // 创建锚点，设置图片的位置和大小
+            XSSFClientAnchor anchor = new XSSFClientAnchor(
+                0, 0, 0, 0, // dx1, dy1, dx2, dy2
+                col1, row1, col2, row2 // 起始列, 起始行, 结束列, 结束行
+            );
+
+            // 插入图片
+            drawing.CreatePicture(anchor, pictureIndex);
         }
     }
 }
